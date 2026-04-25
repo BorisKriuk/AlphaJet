@@ -25,23 +25,14 @@ The objective is not to replace conceptual design tools such as OpenVSP or SUAVE
 
 ## Key contributions
 
-**Hybrid GA / AD-VAE search.** A genetic algorithm operates over a 25-dimensional anatomical parameter space (span, sweep, taper, fineness ratio, fin geometry, engine placement, etc.). A small 3D Anatomically-Disentangled VAE is trained on synthetic jets to provide a learned shape prior and a differentiable latent representation.
+**1. Anatomy-disentangled latent search.**
+Most learned aircraft generators encode geometry into an opaque latent vector. AlphaJet instead trains a 3D VAE whose latent dimensions are tied to interpretable anatomical parameters — span, sweep, taper, fineness ratio, fin geometry, engine placement, and so on. The genetic algorithm then evolves directly in this disentangled space, so every mutation corresponds to a meaningful change in the aircraft rather than a random walk through a black-box manifold.
 
-**Closed-form physics fitness.** Every fitness component is derived analytically rather than learned. The model includes parasite, induced, and wave drag (Korn–Mason), Breguet range, wing-bending stress at the root, longitudinal static margin, V-tail volume coefficient, wing loading, and a fuel-versus-payload volumetric packing check.
+**2. Topology-protected evolution across five tail configurations.**
+Standard GAs collapse onto a single dominant configuration within a few generations. AlphaJet seeds the population round-robin across five distinct tail topologies (conventional, T-tail, cruciform, V-tail, flying-wing) and enforces topology elitism, guaranteeing that each configuration is preserved and improved in parallel. The result is a Pareto-style comparison across topologies in a single run, instead of a single locally optimal shape.
 
-**Topology-preserving evolution.** Five tail topologies — conventional, T-tail, cruciform, V-tail, and flying-wing — are seeded round-robin and protected by topology elitism, preventing premature collapse onto a single configuration.
-
-**Asymmetric fuselage modeling.** The fuselage is constructed with a blunter cockpit nose and a small droop, and a sharper tail cone with proper upsweep, rather than the symmetric body-of-revolution typical of toy generators.
-
-**Mount-aware geometry scoring.** Engines and horizontal stabilizers are scored on whether their bounding regions actually intersect the structure they claim to attach to (fuselage, fin, wing pylon). Floating components are penalized in fitness.
-
-**Constructive single-engine layout.** One-engine designs are generated with a rear-mounted nozzle protruding from the upswept tail cone, consistent with business-jet and pusher configurations.
-
-**Hard envelope projection.** The user-defined aircraft envelope and per-engine bounding box are projected onto every individual at every generation, guaranteeing that the final design fits the specified volume.
-
-**Stagnation restarts.** When mean fitness plateaus, half of the population is replaced with fresh seeds drawn across all topologies, preventing the search from settling in narrow local minima.
-
-**Live streaming UI.** A Flask + Socket.IO backend pushes the voxel cloud and a full per-component fitness breakdown to a Three.js viewer after every generation.
+**3. Mount-aware fitness with hard envelope projection.**
+Conventional shape generators happily produce aircraft with engines floating in mid-air or stabilizers detached from the fuselage. AlphaJet's fitness function explicitly checks that every component's bounding region intersects the structure it claims to attach to (fuselage, fin, wing pylon), and penalizes floating geometry. At the same time, the user-defined outer envelope and per-engine bounding box are projected onto every individual at every generation, so the evolved design is guaranteed to be both physically connected and dimensionally compliant.
 
 ---
 
