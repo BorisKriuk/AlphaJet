@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AlphaJet · AD-VAE Evolution</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0e1117;color:#e6e6e6;display:flex;height:100vh;overflow:hidden}
+  #sidebar{width:380px;padding:20px;overflow-y:auto;background:#161b22;border-right:1px solid #2a2f38;box-sizing:border-box}
+  #main{flex:1;display:flex;flex-direction:column;min-width:0}
+  #canvas-container{flex:1;min-height:0;position:relative}
+  #stats{height:44%;padding:15px;background:#161b22;border-top:1px solid #2a2f38;overflow-y:auto;box-sizing:border-box}
+  h1{font-size:20px;margin:0 0 8px;color:#58a6ff}
+  .sub{font-size:11px;color:#8b949e;margin-bottom:14px;line-height:1.4}
+  label{display:block;font-size:12px;color:#8b949e;margin:10px 0 3px}
+  input,select{width:100%;padding:6px 8px;background:#0d1117;border:1px solid #30363d;color:#e6e6e6;border-radius:4px;box-sizing:border-box;font-family:monospace}
+  button{width:100%;padding:10px;margin-top:14px;background:#238636;border:none;color:#fff;font-weight:bold;border-radius:6px;cursor:pointer;font-size:14px}
+  button:hover{background:#2ea043}
+  button.stop{background:#da3633}
+  button.stop:hover{background:#f85149}
+  button.ghost{background:#30363d;color:#c9d1d9;margin-top:6px}
+  button.ghost:hover{background:#3a4049}
+  .row{display:flex;gap:8px}
+  .row>div{flex:1}
+  .metric{display:flex;justify-content:space-between;padding:3px 0;font-size:13px;border-bottom:1px solid #21262d}
+  .metric .k{color:#8b949e}
+  .metric .v{color:#58a6ff;font-family:monospace}
+  .metric .v.bad{color:#f85149}
+  .metric .v.good{color:#3fb950}
+  .metric .v.warn{color:#d29922}
+  #gen-log{max-height:140px;overflow-y:auto;font-size:11px;font-family:monospace;color:#8b949e;margin-top:10px;border-top:1px solid #21262d;padding-top:8px}
+  .section{font-weight:bold;color:#58a6ff;margin:14px 0 5px;font-size:13px}
+  .section:first-child{margin-top:0}
+  .subsection{font-weight:bold;color:#8b949e;margin:12px 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  #overlay{position:absolute;top:10px;left:10px;background:rgba(13,17,23,0.75);padding:8px 12px;border-radius:6px;font-size:12px;color:#8b949e;pointer-events:none}
+  #overlay .big{color:#58a6ff;font-size:14px;font-weight:bold}
+  #voxcount{position:absolute;top:10px;right:10px;background:rgba(13,17,23,0.75);padding:8px 12px;border-radius:6px;font-size:12px;color:#8b949e;font-family:monospace;text-align:right;line-height:1.4}
+  #voxcount .config{color:#58a6ff;font-weight:bold}
+  #voxcount .gridinfo{color:#6e7681;font-size:10px;margin-top:2px}
+  #voxcount .eng{color:#ff5c5c;font-size:11px;margin-top:2px}
+  #viewctrl{position:absolute;bottom:10px;right:10px;display:flex;gap:6px}
+  #viewctrl button{width:auto;padding:6px 10px;margin:0;font-size:11px;font-weight:normal;background:rgba(13,17,23,0.8);border:1px solid #30363d;color:#c9d1d9}
+  #viewctrl button:hover{background:rgba(48,54,61,0.9)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  .hint{font-size:10px;color:#6e7681;margin-top:2px}
+  .warn{font-size:11px;color:#f85149;margin-top:4px;display:none}
+  .toggle-row{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#8b949e}
+  .toggle-row input{width:auto}
+  .pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;background:#30363d;color:#c9d1d9;margin-left:6px}
+  .pill.t-t_tail{background:#1f6feb;color:#fff}
+  .pill.t-conventional{background:#238636;color:#fff}
+  .pill.t-cruciform{background:#8250df;color:#fff}
+  .pill.t-v_tail{background:#bf8700;color:#fff}
+  .pill.t-flying_wing{background:#da3633;color:#fff}
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>AlphaJet</h1>
+    <div class="sub">AD-VAE evolutionary design · 25-D anatomical latent · real aerodynamic + structural physics. <b>Hard caps</b> on fuselage, engines and wingspan; engines rendered in red.</div>
+
+    <div class="subsection">Preset</div>
+    <select id="preset">
+      <option value="custom">— custom —</option>
+      <option value="pak_vta" selected>PAK VTA (strategic airlifter, 350 t)</option>
+      <option value="pak_da">PAK DA (stealth flying-wing bomber, 145 t)</option>
+      <option value="ssj_new">SSJ-New (regional jet, 49 t)</option>
+      <option value="mc21_400">MC-21-400 (narrowbody, 87 t)</option>
+      <option value="geran3">Geran-3 (jet loitering munition, 310 kg)</option>
+      <option value="orlan">Orlan-10 (recon UAV, 18 kg)</option>
+    </select>
+
+    <div class="subsection">Overall bounding box (m)</div>
+    <label>L × H × W — total envelope (wings, tail) — HARD CAP</label>
+    <div class="row">
+      <div><input id="l" type="number" value="75" step="0.5"></div>
+      <div><input id="h" type="number" value="22" step="0.5"></div>
+      <div><input id="w" type="number" value="90" step="0.5"></div>
+    </div>
+
+    <div class="subsection">Fuselage sub-box (m, hard cap)</div>
+    <label>Fuselage L × H × W (body only)</label>
+    <div class="row">
+      <div><input id="fuse_l" type="number" value="70" step="0.5"></div>
+      <div><input id="fuse_h" type="number" value="8"  step="0.2"></div>
+      <div><input id="fuse_w" type="number" value="7"  step="0.2"></div>
+    </div>
+    <div class="hint">Hard ceiling on body diameter independent of wingspan/tail height.</div>
+    <div class="warn" id="fuse-warn">⚠ Fuselage sub-box exceeds overall box; clamping.</div>
+
+    <div class="subsection">Engine envelope (m, hard cap per engine)</div>
+    <label>Engine L × H × W</label>
+    <div class="row">
+      <div><input id="engine_l" type="number" value="5"   step="0.1"></div>
+      <div><input id="engine_h" type="number" value="3.7" step="0.1"></div>
+      <div><input id="engine_w" type="number" value="3.7" step="0.1"></div>
+    </div>
+    <div class="hint">Strict ceiling on each engine's bounding box. Set 0 for any axis to disable.</div>
+
+    <div class="subsection">Mission</div>
+    <label>Gross mass target (kg)</label>
+    <input id="target_mass" type="number" value="350000" step="500">
+
+    <label>Payload target (kg) — optional, 0 = auto</label>
+    <input id="payload_mass" type="number" value="80000" step="100">
+
+    <label>Required range (km)</label>
+    <input id="max_distance_km" type="number" value="7400" step="100">
+
+    <label>Cruise speed (m/s) — M0.80 ≈ 236</label>
+    <input id="cruise_speed" type="number" value="225" step="5">
+
+    <div class="subsection">Propulsion (hard constraints)</div>
+    <label>Number of engines (hard) — 0 = auto</label>
+    <select id="n_engines">
+      <option value="0">auto</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4" selected>4</option>
+    </select>
+    <label>Total engine thrust (kN)</label>
+    <input id="engine_thrust_kN" type="number" value="1440" step="5">
+
+    <div class="subsection">Structure</div>
+    <label>Structural areal density (kg/m²)</label>
+    <input id="areal_density" type="number" value="22" step="1">
+    <div class="hint">Typical: 14 (CFRP), 18 (Al), 28 (Ti)</div>
+
+    <div class="subsection">Search</div>
+    <label>Generations</label>
+    <input id="generations" type="number" value="150" step="5">
+
+    <div class="toggle-row">
+      <input type="checkbox" id="smooth" checked>
+      <label for="smooth" style="margin:0">Smooth voxels (tight cubes)</label>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="autofit" checked>
+      <label for="autofit" style="margin:0">Auto-fit camera every generation</label>
+    </div>
+
+    <button id="start-btn">▶ Start Evolution</button>
+    <button id="stop-btn" class="stop" style="display:none">■ Stop</button>
+    <div id="gen-log"></div>
+  </div>
+
+  <div id="main">
+    <div id="canvas-container">
+      <div id="overlay">
+        <div class="big">AlphaJet Voxel Viewer</div>
+        <div>drag = orbit · wheel = zoom</div>
+        <div style="color:#ff5c5c">▮ engines · ▮ structure</div>
+      </div>
+      <div id="voxcount">
+        <div id="voxconfig" class="config">—</div>
+        <div id="voxnum">— voxels</div>
+        <div id="voxeng" class="eng">— engine vx</div>
+        <div id="voxgrid" class="gridinfo">grid —</div>
+        <div id="voxbbox" class="gridinfo">—</div>
+      </div>
+      <div id="viewctrl">
+        <button id="fit-btn">⤢ Fit</button>
+        <button id="reset-btn">↺ Reset view</button>
+      </div>
+    </div>
+    <div id="stats">
+      <div class="section">Best individual · gen <span id="gen-num">—</span> <span id="tail-pill"></span></div>
+      <div id="metrics"><div class="sub">Run an evolution to see metrics.</div></div>
+      <div class="section">Anatomical parameters</div>
+      <div id="anatomy"><div class="sub">—</div></div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+const PRESETS = {
+  pak_vta: {
+    l:75, h:22, w:90,  fuse_l:70, fuse_h:8, fuse_w:7,
+    engine_l:5, engine_h:3.7, engine_w:3.7,
+    target_mass:350000, payload_mass:80000, max_distance_km:7400,
+    cruise_speed:225, n_engines:4, engine_thrust_kN:1440, areal_density:22,
+  },
+  pak_da: {
+    l:25, h:6, w:50, fuse_l:24, fuse_h:5.5, fuse_w:15,
+    engine_l:3.0, engine_h:1.5, engine_w:1.5,
+    target_mass:145000, payload_mass:30000, max_distance_km:15000,
+    cruise_speed:230, n_engines:4, engine_thrust_kN:960, areal_density:18,
+  },
+  ssj_new: {
+    l:30, h:10.3, w:27.8, fuse_l:29, fuse_h:3.5, fuse_w:3.24,
+    engine_l:2.7, engine_h:1.5, engine_w:1.5,
+    target_mass:49450, payload_mass:12245, max_distance_km:4578,
+    cruise_speed:245, n_engines:2, engine_thrust_kN:158, areal_density:18,
+  },
+  mc21_400: {
+    l:42.2, h:11.5, w:35.9, fuse_l:40, fuse_h:4.1, fuse_w:4.06,
+    engine_l:3.0, engine_h:1.9, engine_w:1.9,
+    target_mass:87300, payload_mass:22600, max_distance_km:5500,
+    cruise_speed:230, n_engines:2, engine_thrust_kN:314, areal_density:16,
+  },
+  geran3: {
+    l:3.5, h:0.8, w:3.0, fuse_l:3.5, fuse_h:0.55, fuse_w:0.55,
+    engine_l:0.6, engine_h:0.25, engine_w:0.25,
+    target_mass:310, payload_mass:90, max_distance_km:2500,
+    cruise_speed:130, n_engines:1, engine_thrust_kN:0.9, areal_density:15,
+  },
+  orlan: {
+    l:1.8, h:1.0, w:3.1, fuse_l:1.8, fuse_h:0.32, fuse_w:0.32,
+    engine_l:0.4, engine_h:0.3, engine_w:0.3,
+    target_mass:18, payload_mass:5, max_distance_km:600,
+    cruise_speed:40, n_engines:1, engine_thrust_kN:0.12, areal_density:8,
+  },
+};
+
+function $(id){ return document.getElementById(id); }
+
+function applyPreset(name){
+  const p = PRESETS[name]; if (!p) return;
+  for (const [k, v] of Object.entries(p)){
+    const el = $(k);
+    if (el) el.value = v;
+  }
+  validateFuse();
+}
+
+$('preset').addEventListener('change', e => {
+  if (e.target.value !== 'custom') applyPreset(e.target.value);
+});
+
+function validateFuse(){
+  const L=+$('l').value, H=+$('h').value, W=+$('w').value;
+  const fL=+$('fuse_l').value, fH=+$('fuse_h').value, fW=+$('fuse_w').value;
+  const bad = (fL > L + 1e-6) || (fH > H + 1e-6) || (fW > Math.min(H,W) + 1e-6);
+  $('fuse-warn').style.display = bad ? 'block' : 'none';
+}
+['l','h','w','fuse_l','fuse_h','fuse_w'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('input', validateFuse);
+});
+
+// -----------------------------------------------------------------
+// Three.js viewer
+// -----------------------------------------------------------------
+let GRID = 128;
+let HALF = GRID / 2;
+
+const container = $('canvas-container');
+const voxNum    = $('voxnum');
+const voxEng    = $('voxeng');
+const voxConfig = $('voxconfig');
+const voxGrid   = $('voxgrid');
+const voxBbox   = $('voxbbox');
+const smoothCb  = $('smooth');
+const autofitCb = $('autofit');
+const tailPill  = $('tail-pill');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0f15);
+scene.fog = new THREE.Fog(0x0b0f15, GRID * 1.5, GRID * 6);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 8000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+function resize(){
+  const w = container.clientWidth, h = container.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.42));
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
+keyLight.position.set(120, 200, 160);
+scene.add(keyLight);
+const rim = new THREE.DirectionalLight(0x4488ff, 0.55);
+rim.position.set(-120, 40, -100);
+scene.add(rim);
+const fill = new THREE.DirectionalLight(0xffa040, 0.25);
+fill.position.set(0, -50, 100);
+scene.add(fill);
+
+let gridHelper = null;
+function rebuildGridHelper(size, y){
+  if (gridHelper){ scene.remove(gridHelper); gridHelper.geometry.dispose(); }
+  const s = Math.max(size, 20);
+  gridHelper = new THREE.GridHelper(s, 40, 0x30363d, 0x1a1f27);
+  gridHelper.position.y = y;
+  scene.add(gridHelper);
+  scene.fog.near = s * 0.8;
+  scene.fog.far  = s * 4.0;
+}
+rebuildGridHelper(GRID * 2, -HALF);
+
+let jetMesh = null;
+let engineMesh = null;
+let currentGeom = null;
+let currentMat  = null;
+let engineGeom  = null;
+let engineMat   = null;
+let modelExtent  = GRID;
+let modelCenterY = 0;
+let modelBottomY = -HALF;
+
+function rebuildMaterials(){
+  if (currentGeom) currentGeom.dispose();
+  if (currentMat)  currentMat.dispose();
+  if (engineGeom)  engineGeom.dispose();
+  if (engineMat)   engineMat.dispose();
+  const size = smoothCb.checked ? 1.0 : 0.88;
+  currentGeom = new THREE.BoxGeometry(size, size, size);
+  currentMat  = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  engineGeom  = new THREE.BoxGeometry(size * 1.02, size * 1.02, size * 1.02);
+  engineMat   = new THREE.MeshLambertMaterial({ color: 0xff2a2a, emissive: 0x440000 });
+}
+rebuildMaterials();
+
+const tmpObj   = new THREE.Object3D();
+const tmpColor = new THREE.Color();
+
+function colorForHeight(t){
+  const c1 = new THREE.Color(0x1e4d8c);
+  const c2 = new THREE.Color(0x58a6ff);
+  const c3 = new THREE.Color(0xa8d5ff);
+  return t < 0.5 ? c1.clone().lerp(c2, t*2) : c2.clone().lerp(c3, (t-0.5)*2);
+}
+
+function detectGrid(voxels){
+  let maxC = 0;
+  for (let i=0;i<voxels.length;i++){
+    const p = voxels[i];
+    if (p[0]>maxC) maxC=p[0];
+    if (p[1]>maxC) maxC=p[1];
+    if (p[2]>maxC) maxC=p[2];
+  }
+  const choices = [64,96,128,160,192,224,256,320,384,512,768,1024];
+  for (const c of choices){ if (maxC < c) return c; }
+  return 1024;
+}
+
+function computeAABB(voxels){
+  let mnx=1e9,mny=1e9,mnz=1e9,mxx=-1e9,mxy=-1e9,mxz=-1e9;
+  for (let i=0;i<voxels.length;i++){
+    const p=voxels[i];
+    if (p[0]<mnx)mnx=p[0]; if (p[0]>mxx)mxx=p[0];
+    if (p[1]<mny)mny=p[1]; if (p[1]>mxy)mxy=p[1];
+    if (p[2]<mnz)mnz=p[2]; if (p[2]>mxz)mxz=p[2];
+  }
+  return { mnx,mny,mnz,mxx,mxy,mxz };
+}
+
+function drawJet(structVoxels, engVoxels){
+  if (jetMesh){ scene.remove(jetMesh); jetMesh = null; }
+  if (engineMesh){ scene.remove(engineMesh); engineMesh = null; }
+
+  structVoxels = structVoxels || [];
+  engVoxels    = engVoxels    || [];
+  const all = structVoxels.concat(engVoxels);
+  if (!all.length){
+    voxNum.textContent='0 voxels';
+    voxEng.textContent='0 engine vx';
+    voxGrid.textContent='grid —'; voxBbox.textContent='';
+    return;
+  }
+  const detected = detectGrid(all);
+  if (detected !== GRID){ GRID=detected; HALF=GRID/2; }
+  voxGrid.textContent = `grid ${GRID}³`;
+
+  const bb = computeAABB(all);
+  const spanX = bb.mxx-bb.mnx+1, spanY=bb.mxy-bb.mny+1, spanZ=bb.mxz-bb.mnz+1;
+  const cx=(bb.mnx+bb.mxx)/2, cy=(bb.mny+bb.mxy)/2, cz=(bb.mnz+bb.mxz)/2;
+  modelExtent = Math.max(spanX, spanY, spanZ);
+  voxBbox.textContent = `aabb ${spanX}×${spanY}×${spanZ}`;
+
+  rebuildMaterials();
+
+  // ---- Structure mesh (blue gradient by height) ----
+  if (structVoxels.length){
+    jetMesh = new THREE.InstancedMesh(currentGeom, currentMat, structVoxels.length);
+    jetMesh.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(structVoxels.length*3), 3);
+    for (let i=0;i<structVoxels.length;i++){
+      const p = structVoxels[i];
+      tmpObj.position.set(p[0]-cx, p[2]-cz, p[1]-cy);
+      tmpObj.updateMatrix();
+      jetMesh.setMatrixAt(i, tmpObj.matrix);
+      const t = (p[2]-bb.mnz)/Math.max(spanZ-1,1);
+      tmpColor.copy(colorForHeight(t));
+      jetMesh.setColorAt(i, tmpColor);
+    }
+    jetMesh.instanceMatrix.needsUpdate = true;
+    if (jetMesh.instanceColor) jetMesh.instanceColor.needsUpdate = true;
+    scene.add(jetMesh);
+  }
+
+  // ---- Engine mesh (solid red) ----
+  if (engVoxels.length){
+    engineMesh = new THREE.InstancedMesh(engineGeom, engineMat, engVoxels.length);
+    for (let i=0;i<engVoxels.length;i++){
+      const p = engVoxels[i];
+      tmpObj.position.set(p[0]-cx, p[2]-cz, p[1]-cy);
+      tmpObj.updateMatrix();
+      engineMesh.setMatrixAt(i, tmpObj.matrix);
+    }
+    engineMesh.instanceMatrix.needsUpdate = true;
+    scene.add(engineMesh);
+  }
+
+  modelCenterY = 0;
+  modelBottomY = (bb.mnz - cz) - 1.0;
+  const groundSize = Math.max(spanX, spanY) * 2.2;
+  rebuildGridHelper(groundSize, modelBottomY);
+
+  voxNum.textContent = (structVoxels.length + engVoxels.length).toLocaleString() + ' voxels';
+  voxEng.textContent = engVoxels.length.toLocaleString() + ' engine vx';
+
+  if (autofitCb.checked && !userLockedView){
+    fitCameraToModel();
+  } else {
+    radius = Math.max(radius, modelExtent * 0.8);
+    radius = Math.min(radius, modelExtent * 6.0);
+    updateCamera();
+  }
+}
+
+smoothCb.addEventListener('change', () => { if (lastStruct||lastEng) drawJet(lastStruct, lastEng); });
+
+let dragging=false, px=0, py=0;
+let theta=0.9, phi=0.35, radius=GRID*2.0;
+let userLockedView=false;
+
+function updateCamera(){
+  camera.position.x = radius * Math.cos(phi) * Math.sin(theta);
+  camera.position.z = radius * Math.cos(phi) * Math.cos(theta);
+  camera.position.y = radius * Math.sin(phi) + modelCenterY;
+  camera.lookAt(0, modelCenterY, 0);
+  const ext = Math.max(modelExtent, 10);
+  camera.near = Math.max(0.1, ext * 0.01);
+  camera.far  = Math.max(2000, ext * 60);
+  camera.updateProjectionMatrix();
+}
+
+function fitCameraToModel(){
+  const fov = camera.fov * Math.PI / 180;
+  const aspect = camera.aspect || 1;
+  const half = modelExtent * 0.55;
+  const rV = half / Math.tan(fov/2);
+  const rH = half / (Math.tan(fov/2) * aspect);
+  radius = Math.max(rV, rH) * 1.15;
+  updateCamera();
+}
+updateCamera();
+
+container.addEventListener('mousedown', e => {
+  dragging=true; px=e.clientX; py=e.clientY; userLockedView=true;
+});
+window.addEventListener('mouseup', () => { dragging=false; });
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  theta -= (e.clientX - px)*0.005;
+  phi = Math.max(-1.4, Math.min(1.4, phi + (e.clientY - py)*0.005));
+  px=e.clientX; py=e.clientY; updateCamera();
+});
+container.addEventListener('wheel', e => {
+  userLockedView = true;
+  const scale = 1 + e.deltaY * 0.0015;
+  radius = Math.max(modelExtent * 0.2, Math.min(modelExtent * 10, radius * scale));
+  updateCamera(); e.preventDefault();
+}, { passive: false });
+
+$('fit-btn').onclick   = () => { userLockedView=false; fitCameraToModel(); };
+$('reset-btn').onclick = () => { userLockedView=false; theta=0.9; phi=0.35; fitCameraToModel(); };
+
+let userSpun=false;
+container.addEventListener('mousedown', () => { userSpun = true; });
+
+(function loop(){
+  requestAnimationFrame(loop);
+  if (!userSpun){ theta += 0.0025; updateCamera(); }
+  renderer.render(scene, camera);
+})();
+
+// -----------------------------------------------------------------
+// Socket + UI
+// -----------------------------------------------------------------
+const socket = io();
+const startBtn=$('start-btn'), stopBtn=$('stop-btn'), genLog=$('gen-log');
+const metricsDiv=$('metrics'), anatomyDiv=$('anatomy'), genNum=$('gen-num');
+let lastStruct=null, lastEng=null;
+
+startBtn.onclick = async () => {
+  let L=+$('l').value, H=+$('h').value, W=+$('w').value;
+  let fL=+$('fuse_l').value, fH=+$('fuse_h').value, fW=+$('fuse_w').value;
+  fL = Math.min(fL, L); fH = Math.min(fH, H); fW = Math.min(fW, Math.min(H,W));
+  $('fuse_l').value=fL; $('fuse_h').value=fH; $('fuse_w').value=fW;
+  validateFuse();
+
+  const body = {
+    l:L, h:H, w:W, fuse_l:fL, fuse_h:fH, fuse_w:fW,
+    engine_l:        +$('engine_l').value,
+    engine_h:        +$('engine_h').value,
+    engine_w:        +$('engine_w').value,
+    target_mass:     +$('target_mass').value,
+    payload_mass:    +$('payload_mass').value,
+    engine_thrust_kN:+$('engine_thrust_kN').value,
+    n_engines:       +$('n_engines').value,
+    areal_density:   +$('areal_density').value,
+    max_distance_km: +$('max_distance_km').value,
+    cruise_speed:    +$('cruise_speed').value,
+    generations:     +$('generations').value,
+  };
+  try {
+    const r = await fetch('/api/start',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const j = await r.json();
+    if (j.error){ alert(j.error); return; }
+  } catch (err){ alert('Request failed: '+err.message); return; }
+  userLockedView=false; userSpun=false; theta=0.9; phi=0.35;
+  genLog.innerHTML=''; startBtn.style.display='none'; stopBtn.style.display='block';
+};
+
+stopBtn.onclick = () => fetch('/api/stop',{method:'POST'});
+
+function flag(b){ return `<span class="v ${b?'good':'bad'}">${b?'✓':'✗'}</span>`; }
+function cls(_, goodIf){ return goodIf ? 'good' : 'bad'; }
+function n(x,d=2){ if (x==null||Number.isNaN(x)) return '—'; return Number(x).toFixed(d); }
+
+function tailTypeOf(b){
+  if (b && b.tail_type) return b.tail_type;
+  if (!b) return 'unknown';
+  if (!b.has_vtail && !b.has_htail) return 'flying_wing';
+  if (b.has_vtail && !b.has_htail)  return 'v_tail';
+  if (!b.has_vtail && b.has_htail)  return 'h_only';
+  return 'conventional';
+}
+function prettyTail(t){
+  return ({flying_wing:'flying-wing',v_tail:'V-tail',t_tail:'T-tail',
+           cruciform:'cruciform',conventional:'conventional',
+           h_only:'H-tail only',v_only:'V-only'})[t] || t;
+}
+function configLabel(b){
+  if (!b) return '—';
+  const mnt = b.engine_mount_type ? ` · ${b.engine_mount_type}` : '';
+  return `${b.n_engines}-engine · ${prettyTail(tailTypeOf(b))}${mnt}`;
+}
+
+socket.on('generation', d => {
+  lastStruct = d.voxels; lastEng = d.engine_voxels;
+  drawJet(d.voxels, d.engine_voxels);
+  genNum.textContent = d.generation;
+  const b = d.breakdown;
+  voxConfig.textContent = configLabel(b);
+
+  const tt = tailTypeOf(b);
+  tailPill.className = `pill t-${tt}`;
+  tailPill.textContent = prettyTail(tt);
+
+  const sm = b.static_margin_full;
+  const rngClass    = cls(b.range_km, b.range_km >= b.range_required_km);
+  const thrustClass = cls(b.thrust_margin, b.thrust_margin >= 1.0);
+  const machClass   = cls(b.mach, b.mach < b.mach_crit);
+  const stressClass = b.wing_root_stress_MPa < 280 ? 'good' : (b.wing_root_stress_MPa < 420 ? 'warn' : 'bad');
+  const smClass     = (sm>=0.05 && sm<=0.25) ? 'good' : (sm>0 ? 'warn' : 'bad');
+  const payClass    = b.implied_payload_kg>0 ? 'good' : 'bad';
+  const engForced   = b.n_engines_forced_by_user;
+  const mountClass  = b.engine_mount_firm ? 'good' : (b.engine_floating ? 'bad' : 'warn');
+  const htMountClass= !b.has_htail ? 'good' : (b.htail_mount_firm ? 'good' : (b.htail_floating ? 'bad' : 'warn'));
+
+  metricsDiv.innerHTML = `
+    <div class="cols">
+      <div>
+        <div class="metric"><span class="k">Fitness</span><span class="v">${n(b.fitness,4)}</span></div>
+        <div class="metric"><span class="k">Vehicle class</span><span class="v">${b.vehicle_class||'—'}</span></div>
+        <div class="metric"><span class="k">Engines</span><span class="v">${b.n_engines}${engForced?' (user-forced)':''}</span></div>
+        <div class="metric"><span class="k">Engine size (m)</span><span class="v">${n(b.engine_length_m,2)} × ${n(b.engine_size_m,2)}</span></div>
+        <div class="metric"><span class="k">Mount type</span><span class="v">${b.engine_mount_type||'—'}</span></div>
+        <div class="metric"><span class="k">Mount firm</span><span class="v ${mountClass}">${b.engine_mount_firm?'✓ firm':(b.engine_floating?'✗ floating':'~ touching')}</span></div>
+        <div class="metric"><span class="k">H-tail attach</span><span class="v ${htMountClass}">${b.htail_attached_to||'n/a'}</span></div>
+        <div class="metric"><span class="k">Range (km)</span><span class="v ${rngClass}">${n(b.range_km,0)} / ${n(b.range_required_km,0)}</span></div>
+        <div class="metric"><span class="k">L/D</span><span class="v">${n(b.LD,2)}</span></div>
+        <div class="metric"><span class="k">CL cruise</span><span class="v">${n(b.CL_cruise,3)}</span></div>
+        <div class="metric"><span class="k">CD0 · CDi · CDw</span><span class="v">${n(b.CD0,4)} · ${n(b.CDi,4)} · ${n(b.CDw,4)}</span></div>
+        <div class="metric"><span class="k">Mach / Mcrit</span><span class="v ${machClass}">${n(b.mach,2)} / ${n(b.mach_crit,2)}</span></div>
+        <div class="metric"><span class="k">Drag cruise (kN)</span><span class="v">${n(b.drag_N/1000,1)}</span></div>
+        <div class="metric"><span class="k">Thrust margin</span><span class="v ${thrustClass}">${n(b.thrust_margin,2)}×</span></div>
+      </div>
+      <div>
+        <div class="metric"><span class="k">Wing area S (m²)</span><span class="v">${n(b.wing_area_m2,1)}</span></div>
+        <div class="metric"><span class="k">Aspect ratio</span><span class="v">${n(b.AR,2)}</span></div>
+        <div class="metric"><span class="k">MAC (m)</span><span class="v">${n(b.MAC_m,2)}</span></div>
+        <div class="metric"><span class="k">V-tail cant (°)</span><span class="v">${n(b.vtail_cant_deg,0)}</span></div>
+        <div class="metric"><span class="k">Vh eff (S_h_tot m²)</span><span class="v">${n(b.sh_effective_m2,1)}</span></div>
+        <div class="metric"><span class="k">Vv eff (S_v_tot m²)</span><span class="v">${n(b.sv_effective_m2,1)}</span></div>
+        <div class="metric"><span class="k">Structure mass (kg)</span><span class="v">${n(b.structure_mass_kg,0)}</span></div>
+        <div class="metric"><span class="k">Engine mass (kg)</span><span class="v">${n(b.engine_mass_kg,0)}</span></div>
+        <div class="metric"><span class="k">Fuel mass (kg)</span><span class="v">${n(b.fuel_mass_kg,0)}</span></div>
+        <div class="metric"><span class="k">Implied payload (kg)</span><span class="v ${payClass}">${n(b.implied_payload_kg,0)}</span></div>
+        <div class="metric"><span class="k">Static margin</span><span class="v ${smClass}">${n(sm,3)}</span></div>
+        <div class="metric"><span class="k">Wing root σ (MPa)</span><span class="v ${stressClass}">${n(b.wing_root_stress_MPa,1)}</span></div>
+        <div class="metric"><span class="k">Fits box</span>${flag(b.box_ok)}</div>
+      </div>
+    </div>`;
+
+  let a = '<div class="cols"><div>';
+  const keys = Object.keys(d.anatomy);
+  const mid = Math.ceil(keys.length/2);
+  keys.forEach((k,i) => {
+    if (i===mid) a += '</div><div>';
+    const v = d.anatomy[k];
+    a += `<div class="metric"><span class="k">${k}</span><span class="v">${typeof v==='number'?v.toFixed(3):v}</span></div>`;
+  });
+  a += '</div></div>';
+  anatomyDiv.innerHTML = a;
+
+  const line = document.createElement('div');
+  line.textContent = `gen ${String(d.generation).padStart(3,' ')}: best=${n(d.best_fitness,4)}  avg=${n(d.avg_fitness,4)}  [${prettyTail(tt)}]  R=${n(b.range_km,0)}km  L/D=${n(b.LD,1)}  M=${n(b.mach,2)}`;
+  genLog.insertBefore(line, genLog.firstChild);
+});
+
+socket.on('done', d => {
+  startBtn.style.display='block'; stopBtn.style.display='none';
+  const line = document.createElement('div');
+  line.textContent = `DONE — best fitness: ${(d.best_fitness ?? 0).toFixed(4)}`;
+  line.style.color='#3fb950'; line.style.fontWeight='bold';
+  genLog.insertBefore(line, genLog.firstChild);
+});
+
+validateFuse();
+applyPreset($('preset').value);
+</script>
+</body>
+</html>

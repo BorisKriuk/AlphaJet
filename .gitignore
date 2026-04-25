@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Model weights / large artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs / runtime
+*.log
+*.tmp
+runs/
+checkpoints/
