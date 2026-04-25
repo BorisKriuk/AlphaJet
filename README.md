@@ -83,8 +83,8 @@ The first run trains the AD-VAE on 4,000 synthetic jets (approximately one minut
 
 ```
  ┌────────────────┐  25-D anatomy  ┌────────────────┐  voxels  ┌────────────────┐
- │  GA + AD-VAE   │ ───────────── ▶│ analytical 3D  │ ───────▶│  physics model  │
- │   population   │                │   voxelizer    │          │   + fitness     │
+ │  GA + AD-VAE   │ ───────────── ▶│ analytical 3D  │ ───────▶ │  physics model │
+ │   population   │                │   voxelizer    │          │   + fitness    │
  └───────▲────────┘                └────────────────┘          └────────┬───────┘
          │                                                              │
          └────── tournament + topology elites + mutation  ◀─────────────┘
